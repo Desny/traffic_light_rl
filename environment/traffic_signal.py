@@ -1,14 +1,3 @@
-# import os
-# import sys
-#
-# if 'SUMO_HOME' in os.environ:
-#     tools = os.path.join(os.environ['SUMO_HOME'], 'tools')
-#     sys.path.append(tools)
-# else:
-#     sys.exit("Please declare the environment variable 'SUMO_HOME'")
-#
-# import traci
-# import sumolib
 import numpy as np
 from gym import spaces
 
@@ -44,10 +33,7 @@ class TrafficSignal:
             low=np.zeros(len(self.lanes_id), dtype=np.float32),
             high=np.ones(len(self.lanes_id), dtype=np.float32))
         self.action_space = spaces.Discrete(self.num_green_phases)
-        # last_measure for calculate reward
         self.last_measure = 0
-        # self.last_measure = np.zeros(len(self.lanes_id))
-        self.continue_reward = False
         self.dict_lane_veh = None
 
     def change_phase(self, new_green_phase):
@@ -126,13 +112,7 @@ class TrafficSignal:
         if current_time >= self.rs_update_time:
             self.rs_update_time = self.simulation_time + self.delta_rs_update_time
             update_reward = True
-        if self.reward_fn == 'diff-waiting-time' and update_reward:
-            return self._diff_waiting_time()
-        elif self.reward_fn == 'diff-density' and update_reward:
-            return self._diff_density()
-        elif self.reward_fn == 'diff-new-waiting-time':
-            return self._diff_new_waiting_time(start, update_reward)
-        elif self.reward_fn == 'choose-min-waiting-time':
+        if self.reward_fn == 'choose-min-waiting-time':
             return self._choose_min_waiting_time(start, update_reward, do_action)
         else:
             return None
@@ -160,87 +140,6 @@ class TrafficSignal:
         else:
             return None
 
-    def _diff_new_waiting_time(self, start, end):
-        # initialize dict_lane_veh
-        if start:
-            start_total_wait_time = 0
-            self.continue_reward = True
-            self.dict_lane_veh = {lane_id: {} for lane_id in self.lanes_id}
-            for lane_id in self.lanes_id:
-                veh_list = self.sumo.lane.getLastStepVehicleIDs(lane_id)
-                for veh_id in veh_list:
-                    wait_time = self.sumo.vehicle.getAccumulatedWaitingTime(veh_id)
-                    if wait_time > 0:
-                        self.dict_lane_veh[lane_id][veh_id] = wait_time
-                start_total_wait_time += sum([wait_time for wait_time in self.dict_lane_veh[lane_id].values()])
-            self.last_measure = start_total_wait_time
-            return None
-
-        if self.continue_reward:
-            for lane_id in self.lanes_id:
-                veh_list = self.sumo.lane.getLastStepVehicleIDs(lane_id)
-                dict_veh_existed = {veh_id: 0 for veh_id in veh_list if self.sumo.vehicle.getAccumulatedWaitingTime(veh_id) > 0}
-                for veh_id in self.dict_lane_veh[lane_id]:
-                    if veh_id in dict_veh_existed:
-                        dict_veh_existed[veh_id] = 1
-                        self.dict_lane_veh[lane_id][veh_id] = self.sumo.vehicle.getAccumulatedWaitingTime(veh_id)
-                    else:
-                        self.dict_lane_veh[lane_id][veh_id] -= 1
-                for veh_id in dict_veh_existed:
-                    if dict_veh_existed[veh_id] == 0:
-                        self.dict_lane_veh[lane_id][veh_id] = 1
-            if end:
-                self.continue_reward = False
-                total_wait_time = 0
-                for lane_id in self.lanes_id:
-                    total_wait_time += sum([wait_time for wait_time in self.dict_lane_veh[lane_id].values()])
-                return self.last_measure - total_wait_time
-
-        return None
-
-    def _diff_density(self):
-        state = self.compute_state()
-        # consider congestion
-        last_congestion = [s for s in self.last_measure if abs(s-1) < 1e-2]
-        last_congestion = int(sum(last_congestion))
-        congestion = [s for s in state if abs(s-1) < 1e-2]
-        congestion = int(sum(congestion))
-
-        if congestion > 0:
-            if congestion == last_congestion:
-                reward = -congestion * 0.1
-            else:
-                reward = (last_congestion - congestion) * 0.1
-        else:
-            largest_density = max(self.last_measure.tolist())
-            max_idx = self.last_measure.tolist().index(largest_density)
-            # reward = sum(self.last_measure - state)
-            reward = largest_density - state[max_idx]
-
-        # test
-        if reward < 0:
-            reward *= 10
-
-        return reward
-
-    def _diff_waiting_time(self):
-        ts_wait = self.get_avg_waiting_time()
-        reward = self.last_measure - ts_wait
-        return reward
-
-    def get_avg_waiting_time(self):
-        wait_time_per_lane = []
-        veh_num = 0
-        for lane_id in self.lanes_id:
-            veh_list = self.sumo.lane.getLastStepVehicleIDs(lane_id)
-            veh_num += len(veh_list)
-            wait_time = 0.0
-            for veh in veh_list:
-                acc = self.sumo.vehicle.getAccumulatedWaitingTime(veh)
-                wait_time += acc
-            wait_time_per_lane.append(wait_time)
-        return sum(wait_time_per_lane) / veh_num
-
     def compute_next_state(self):
         current_time = self.sumo.simulation.getTime()
         if current_time >= self.rs_update_time:
@@ -263,10 +162,5 @@ class TrafficSignal:
     def compute_queue(self):
         total_queue = 0
         for lane_id in self.lanes_id:
-            # test
-            veh_list = self.sumo.lane.getLastStepVehicleIDs(lane_id)
-            for veh in veh_list:
-                speed = self.sumo.vehicle.getSpeed(veh)
-            # ------
             total_queue += self.sumo.lane.getLastStepHaltingNumber(lane_id)
         return total_queue

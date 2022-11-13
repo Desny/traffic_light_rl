@@ -28,7 +28,6 @@ class ReplayBuffer:
                                                                          next_state,
                                                                          reward)
             self._num_added += 1
-            # print('train_state:', state, 'action:', info['do_action'], 'next_state:', next_state, 'reward:', reward)
 
     def get(self, indices) -> list:
         pass

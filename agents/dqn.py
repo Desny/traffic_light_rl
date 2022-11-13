@@ -1,13 +1,10 @@
 import random
-import math
 import torch
 import torch.nn as nn
 import networks
-from datetime import datetime
 from collections import namedtuple
 import copy
 import math
-import numpy as np
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -22,6 +19,7 @@ class DqnAgent:
         replay,
         target_update: int,
         gamma: float,
+        use_sgd: bool,
         eps_start: float,
         eps_end: float,
         eps_decay: int,
@@ -34,6 +32,7 @@ class DqnAgent:
         self.replay = replay
         self.target_update = target_update
         self.gamma = gamma
+        self.use_sgd = use_sgd
         self.eps_start = eps_start
         self.eps_end = eps_end
         self.eps_decay = eps_decay
@@ -50,8 +49,6 @@ class DqnAgent:
         self.target_net.eval()
 
         self.learn_steps = 0
-        self.max_q_change_list = []
-        self.max_reward_list = []
         self.z = None
         self.fixed_gamma = copy.deepcopy(gamma)
         self.update_gamma = False
@@ -93,8 +90,10 @@ class DqnAgent:
             if self.replay.steps_done <= 10000:
                 return
             loss_fn = nn.MSELoss()
-            # optimizer = torch.optim.RMSprop(self.policy_net.parameters(), lr=0.00025)
-            optimizer = torch.optim.SGD(self.policy_net.parameters(), lr=0.00025)
+            if self.use_sgd:
+                optimizer = torch.optim.SGD(self.policy_net.parameters(), lr=0.00025)
+            else:
+                optimizer = torch.optim.RMSprop(self.policy_net.parameters(), lr=0.00025)
 
             transitions = self.replay.sample(self.batch_size)
             batch = Transition(*zip(*transitions))
@@ -107,11 +106,7 @@ class DqnAgent:
                 argmax_action = self.policy_net(next_state_batch).max(1)[1].view(self.batch_size, 1)
                 q_max = self.target_net(next_state_batch).gather(1, argmax_action)
                 expected_state_action_values = reward_batch + self.gamma * q_max
-
-                # test
-                # max_q_change = torch.mean((1-self.gamma) * self.target_net(next_state_batch).gather(1, argmax_action)).item()
-                # self.max_q_change_list.append(max_q_change)
-                # self.max_reward_list.append(torch.max(torch.abs(reward_batch).view(-1)).item())
+                # for plot
                 self.q_value_batch_avg = torch.mean(state_action_values).item()
 
             loss = loss_fn(state_action_values, expected_state_action_values)
@@ -125,15 +120,6 @@ class DqnAgent:
             optimizer.step()
             self.learn_steps += 1
             self.update_gamma = True
-
-            # test
-            # torch.save(self.policy_net.state_dict(), 'weights/action_analysis.pth')
-
-            # if self.learn_steps % self.target_update == 0:
-            #     self.target_net.load_state_dict(self.policy_net.state_dict())
-            #     time = str(datetime.now()).split('.')[0]
-            #     time = time.replace('-', '').replace(' ', '_').replace(':', '')
-            #     torch.save(self.policy_net.state_dict(), 'weights/weights_{0}_{1}.pth'.format(time, self.learn_steps))
 
     def cal_z(self, state_batch, action_batch, q_max):
         self.policy_net_copy.load_state_dict(self.policy_net.state_dict())
@@ -172,21 +158,6 @@ class DqnAgent:
         l2_weight = self.policy_net.l2.weight.grad * self.z['l2.weight']
         l2_bias = self.policy_net.l2.bias.grad * self.z['l2.bias']
 
-        # l1_weight_list = l1_weight.view(-1).tolist()
-        # l1_weight = [w for w in l1_weight_list if abs(w) > 1e-10]
-        # l1_bias_list = l1_bias.view(-1).tolist()
-        # l1_bias = [b for b in l1_bias_list if abs(b) > 1e-10]
-        # l2_weight_list = l2_weight.view(-1).tolist()
-        # l2_weight = [w for w in l2_weight_list if abs(w) > 1e-10]
-        # l2_bias_list = l2_bias.view(-1).tolist()
-        # l2_bias = [b for b in l2_bias_list if abs(b) > 1e-10]
-        # params = []
-        # params.extend(l1_weight)
-        # params.extend(l1_bias)
-        # params.extend(l2_weight)
-        # params.extend(l2_bias)
-
         gamma_grad = -0.99 * torch.mean(torch.cat((l1_weight.view(-1), l1_bias.view(-1), l2_weight.view(-1), l2_bias.view(-1))))
-        # gamma_grad = -0.9 * np.mean(params)
         self.gamma += gamma_grad
         self.update_gamma = False

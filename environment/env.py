@@ -26,15 +26,18 @@ class SumoEnv(gym.Env):
         yellow_time: int,
         delta_rs_update_time: int,
         reward_fn: str,
+        mode: str,
         use_gui: bool = False
     ):
         self._net = net_file
         self._route = route_file
         self.skip_range = skip_range
         self.simulation_time = simulation_time
-        self.reward_fn = reward_fn
-        self.use_gui = use_gui
         self.yellow_time = yellow_time
+
+        self.reward_fn = reward_fn
+        self.mode = mode
+        self.use_gui = use_gui
         self.train_state = None
         self.next_state = None
         self.last_phase_state = None
@@ -78,8 +81,6 @@ class SumoEnv(gym.Env):
             self.change_action_time = None
             self.train_state = self.compute_state()
             start = True
-            # self.traffic_signal.last_measure = self.traffic_signal.get_avg_waiting_time()
-            # self.traffic_signal.last_measure = self.train_state
 
         # compute_state must be front of compute_reward
         next_state = self._compute_next_state()
@@ -89,9 +90,7 @@ class SumoEnv(gym.Env):
         self._compute_average_queue(done)
         return next_state, reward, done, info
 
-    def _random_skip(self, skip_range=10):
-        initial_state = None
-
+    def _random_skip(self):
         self.traffic_signal.sumo = self.sumo
         rand_idx = random.randint(0, len(self.traffic_signal.all_green_phases)-1)
         self.traffic_signal.yellow_phase = None
@@ -100,14 +99,14 @@ class SumoEnv(gym.Env):
         self.traffic_signal.update_end_time()
         self.traffic_signal.rs_update_time = 0
 
-        skip_seconds = random.randint(0, skip_range)
+        skip_seconds = random.randint(0, self.skip_range)
         initial_state = self.compute_state()
-        for s in range(skip_seconds):
-            rand_idx = random.randint(0, len(self.traffic_signal.all_green_phases)-1)
-            # action = self.traffic_signal.all_green_phases[rand_idx]
-            next_state, _, _, _ = self.step(rand_idx)
-            if next_state is not None:
-                initial_state = next_state
+        if self.mode == 'train':
+            for s in range(skip_seconds):
+                rand_idx = random.randint(0, len(self.traffic_signal.all_green_phases)-1)
+                next_state, _, _, _ = self.step(rand_idx)
+                if next_state is not None:
+                    initial_state = next_state
 
         return initial_state
 
@@ -116,9 +115,9 @@ class SumoEnv(gym.Env):
                     '--time-to-teleport', '1000']
         if self.use_gui:
             sumo_cmd.extend(['--start', '--quit-on-end'])
+
         traci.start(sumo_cmd)
         self.sumo = traci
-
         if self.use_gui:
             self.sumo.gui.setSchema(traci.gui.DEFAULT_VIEW, "real world")
 
@@ -145,10 +144,6 @@ class SumoEnv(gym.Env):
 
     def _compute_reward(self, start, do_action):
         ts_reward = self.traffic_signal.compute_reward(start, do_action)
-        # if ts_reward is None:
-        #     reward = None
-        # else:
-        #     reward = 1 if ts_reward > 0 else 0
         return ts_reward
 
     def _compute_done(self):
@@ -157,7 +152,6 @@ class SumoEnv(gym.Env):
             done = True
         else:
             done = False
-
         return done
 
     def _compute_average_queue(self, done):
