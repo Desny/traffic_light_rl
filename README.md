@@ -4,6 +4,9 @@ This is a single traffic signal control system implemented using reinforcement l
 Experiments are designed for comparing the training performance using different algorithms (DQN, GBML-DQN) with different optimizers (SGD, RMSprop). The figures of experiments are as follows. For more figures, please check in folder *record*.
 ![image](https://github.com/Desny/traffic_light_rl/blob/main/record/exp1.png)
 
+#### Useful Links
+Paper: https://ieeexplore.ieee.org/document/10098238
+
 ## Quick Start
 #### 1. Install SUMO (a traffic simulator)
 
